@@ -32,7 +32,7 @@ func (ctrl *LoanController) CreateLoanAccount(c *gin.Context) {
 		RepaymentInstallments: dto.RepaymentInstallments,
 		RepaymentPeriod:       dto.RepaymentPeriod,
 		RepaymentPeriodUnit:   dto.RepaymentPeriodUnit,
-		StatusID:              dto.StatusID,
+		StatusID:              1,
 	}
 
 	if result := ctrl.DB.WithContext(c.Request.Context()).Create(&account); result.Error != nil {
@@ -72,14 +72,18 @@ func (ctrl *LoanController) GetLoanAccount(c *gin.Context) {
 func (ctrl *LoanController) ListLoanAccounts(c *gin.Context) {
 	var (
 		queryParams = c.Request.URL.Query()
-		pageSize, _ = strconv.Atoi(queryParams.Get("pageSize"))
 		pageToken   = queryParams.Get("pageToken")
 		searchTerm  = queryParams.Get("search")
 		status      = queryParams.Get("status")
 	)
 
-	if pageSize <= 0 {
-		pageSize = 10 // Default page size
+	// Parse pageSize from query, default if invalid
+	pageSize, _ := strconv.Atoi(queryParams.Get("pageSize"))
+	switch {
+	case pageSize <= 0:
+		pageSize = 10
+	case pageSize > 100:
+		pageSize = 100
 	}
 
 	var lastID int
@@ -98,7 +102,7 @@ func (ctrl *LoanController) ListLoanAccounts(c *gin.Context) {
 
 	// Build the base query with joins
 	db := ctrl.DB.WithContext(c.Request.Context()).Table("loan_account").
-		Select("loan_account.id, loan_account.loan_id, loan_product.name AS product_name, customer.name AS customer_name").
+		Select(selectFields).
 		Joins("LEFT JOIN loan_product ON loan_product.id = loan_account.loan_product_id").
 		Joins("LEFT JOIN customer ON customer.id = loan_account.customer_id").
 		Order("loan_account.id DESC").

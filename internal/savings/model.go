@@ -31,3 +31,21 @@ type SavingsAccount struct {
 func (*SavingsAccount) TableName() string {
 	return "savings_account"
 }
+
+type SavingsAccountRead struct {
+	Customer       `gorm:"embedded;"`
+	SavingProduct  `gorm:"embedded;"`
+	SavingsAccount `gorm:"embedded;"`
+}
+
+type Customer struct {
+	ID         uint   `gorm:"-:migration;column:customer_id" json:"customer_id,omitempty"`
+	FirstName  string `gorm:"-:migration;column:customer_first_name" json:"first_name,omitempty"`
+	MiddleName string `gorm:"-:migration;<-:false;column:customer_middle_name" json:"middle_name,omitempty"`
+	LastName   string `gorm:"-:migration;<-:false;column:customer_last_name" json:"last_name,omitempty"`
+}
+
+type SavingProduct struct {
+	ID          uint   `gorm:"-:migration;<-:false;column:saving_product_id" json:"saving_product_id,omitempty"`
+	ProductName string `gorm:"-:migration;<-:false;column:saving_product_name" json:"saving_product_name,omitempty"`
+}

@@ -24,31 +24,33 @@ type UpdateSavingsAccountDTO struct {
 
 // SavingsAccountResponse defines the structure of the savings account data returned in the response
 type SavingsAccountResponse struct {
-	ID                          uint     `json:"id"`
-	SavingsID                   string   `json:"savings_id"`
-	CustomerID                  int      `json:"customer_id"`
-	ProductID                   int      `json:"product_id"`
-	CurrencyID                  int      `json:"currency_id"`
-	CurrencyCode                string   `json:"currency_code"`
-	Balance                     float64  `json:"balance"`
-	StatusID                    int      `json:"status_id"`
-	DateClosed                  *string  `json:"date_closed"`
-	DateApproved                *string  `json:"date_approved"`
-	DateActivated               *string  `json:"date_activated"`
-	LastInterestCalculationDate *string  `json:"last_interest_calculation_date"`
-	MaturityDate                *string  `json:"maturity_date"`
-	MaximumWithdrawableAmount   *float64 `json:"maximum_withdrawable_amount"`
-	FeesDue                     float64  `json:"fees_due"`
-	LockedBalance               float64  `json:"locked_balance"`
-	DateLocked                  *string  `json:"date_locked"`
-	CreatedAt                   string   `json:"created_at"`
-	UpdatedAt                   string   `json:"updated_at"`
+	ID                          uint          `json:"id"`
+	SavingsID                   string        `json:"savings_id"`
+	CustomerID                  int           `json:"customer_id"`
+	ProductID                   int           `json:"product_id"`
+	CurrencyID                  int           `json:"currency_id"`
+	CurrencyCode                string        `json:"currency_code"`
+	Balance                     float64       `json:"balance"`
+	StatusID                    int           `json:"status_id"`
+	DateClosed                  *string       `json:"date_closed"`
+	DateApproved                *string       `json:"date_approved"`
+	DateActivated               *string       `json:"date_activated"`
+	LastInterestCalculationDate *string       `json:"last_interest_calculation_date"`
+	MaturityDate                *string       `json:"maturity_date"`
+	MaximumWithdrawableAmount   *float64      `json:"maximum_withdrawable_amount"`
+	FeesDue                     float64       `json:"fees_due"`
+	LockedBalance               float64       `json:"locked_balance"`
+	DateLocked                  *string       `json:"date_locked"`
+	Customer                    Customer      `json:"customer,omitempty"`
+	SavingProduct               SavingProduct `json:"saving_product,omitempty"`
+	CreatedAt                   string        `json:"created_at"`
+	UpdatedAt                   string        `json:"updated_at"`
 }
 
 // ToSavingsAccountResponse converts a SavingsAccount to a SavingsAccountResponse
-func ToSavingsAccountResponse(account *SavingsAccount) *SavingsAccountResponse {
+func ToSavingsAccountResponse(account *SavingsAccountRead) *SavingsAccountResponse {
 	return &SavingsAccountResponse{
-		ID:                          account.ID,
+		ID:                          account.SavingsAccount.ID,
 		SavingsID:                   account.SavingsID,
 		CustomerID:                  account.CustomerID,
 		ProductID:                   account.ProductID,
@@ -67,6 +69,8 @@ func ToSavingsAccountResponse(account *SavingsAccount) *SavingsAccountResponse {
 		DateLocked:                  formatNullableTime(account.DateLocked),
 		CreatedAt:                   account.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:                   account.UpdatedAt.UTC().Format(time.RFC3339),
+		Customer:                    account.Customer,
+		SavingProduct:               account.SavingProduct,
 	}
 }
 

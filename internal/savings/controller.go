@@ -26,6 +26,8 @@ type SavingsAccountController struct {
 	*Options
 }
 
+const selectFields = "savings_account.*, savings_product.id AS saving_product_id, savings_product.name as saving_product_name, savings_product.product_code as saving_product_code, customer.id AS customer_id, customer.first_name as customer_first_name, customer.last_name as customer_last_name, customer.middle_name as customer_middle_name"
+
 // CreateSavingsAccount creates a new savings account
 func (ctrl *SavingsAccountController) CreateSavingsAccount(c *gin.Context) {
 	var dto CreateSavingsAccountDTO
@@ -45,7 +47,7 @@ func (ctrl *SavingsAccountController) CreateSavingsAccount(c *gin.Context) {
 		StatusID:     dto.StatusID,
 	}
 
-	if result := ctrl.DB.Create(&account); result.Error != nil {
+	if result := ctrl.DB.WithContext(c.Request.Context()).Create(&account); result.Error != nil {
 		ctrl.Logger.Errorf("Failed to create savings account: %v", result.Error)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
@@ -57,32 +59,27 @@ func (ctrl *SavingsAccountController) CreateSavingsAccount(c *gin.Context) {
 
 // GetSavingsAccount retrieves a savings account by ID, following the GetUser pattern
 func (ctrl *SavingsAccountController) GetSavingsAccount(c *gin.Context) {
-	var (
-		ctx       = c.Request.Context()
-		savingsID = c.Param("id") // ID from the URL path
-		err       error
-	)
+	id := c.Param("id") // ID from the URL path
 
 	// Create a placeholder for the savings account record
-	db := &SavingsAccount{}
+	var db SavingsAccountRead
 
 	// Fetch the savings account by ID from the database
-	err = ctrl.DB.WithContext(ctx).First(db, "id = ?", savingsID).Error
+	err := ctrl.DB.WithContext(c.Request.Context()).
+		Joins("LEFT JOIN savings_product ON savings_product.id = savings_account.product_id").
+		Joins("LEFT JOIN customer ON customer.id = savings_account.customer_id").
+		Select(selectFields).First(&db, "savings_account.id = ?", id).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			ctrl.Logger.Warningf("Savings account with ID %s not found", savingsID)
 			c.JSON(http.StatusNotFound, gin.H{"message": "Savings account not found"})
 		} else {
-			ctrl.Logger.Errorf("Failed to get savings account with ID %s: %v", savingsID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"message": "Failed to get savings account"})
 		}
 		return
 	}
 
-	ctrl.Logger.Infof("Retrieved savings account with ID %s", savingsID)
-
 	// Return the savings account details as JSON
-	c.JSON(http.StatusOK, ToSavingsAccountResponse(db))
+	c.JSON(http.StatusOK, ToSavingsAccountResponse(&db))
 }
 
 // UpdateSavingsAccount updates an existing savings account
@@ -95,7 +92,7 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccount(c *gin.Context) {
 	}
 
 	var account SavingsAccount
-	if result := ctrl.DB.First(&account, id); result.Error != nil {
+	if result := ctrl.DB.WithContext(c.Request.Context()).First(&account, id); result.Error != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Savings account not found"})
 		return
 	}
@@ -115,7 +112,7 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccount(c *gin.Context) {
 // DeleteSavingsAccount deletes a savings account
 func (ctrl *SavingsAccountController) DeleteSavingsAccount(c *gin.Context) {
 	id := c.Param("id")
-	if result := ctrl.DB.Delete(&SavingsAccount{}, id); result.Error != nil {
+	if result := ctrl.DB.WithContext(c.Request.Context()).Delete(&SavingsAccount{}, id); result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
 	}
@@ -128,8 +125,13 @@ const (
 	maxPageSize     = 1000
 )
 
+// ListSavingsAccounts retrieves a list of savings accounts with related product and customer details
 func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
-	queryParams := c.Request.URL.Query()
+	var (
+		queryParams = c.Request.URL.Query()
+		searchTerm  = queryParams.Get("search")
+		status      = queryParams.Get("status")
+	)
 
 	// Parse pageSize from query, default if invalid
 	pageSize, _ := strconv.Atoi(queryParams.Get("pageSize"))
@@ -140,7 +142,7 @@ func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
 		pageSize = defaultPageSize
 	}
 
-	var id int
+	var lastID int
 
 	// Get last id from page token
 	pageToken := queryParams.Get("pageToken")
@@ -150,38 +152,47 @@ func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
 			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token is incorrect"})
 			return
 		}
-		id, err = strconv.Atoi(string(bs))
+		lastID, err = strconv.Atoi(string(bs))
 		if err != nil {
 			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token is incorrect"})
 			return
 		}
 	}
 
+	// Build the main query with joins for fetching data
 	db := ctrl.DB.WithContext(c.Request.Context()).
-		Limit(int(pageSize) + 1).
-		Order("id DESC").
-		Model(&SavingsAccount{})
+		Table("savings_account").
+		Select(selectFields).
+		Joins("LEFT JOIN savings_product ON savings_product.id = savings_account.product_id").
+		Joins("LEFT JOIN customer ON customer.id = savings_account.customer_id").
+		Order("savings_account.id DESC").
+		Limit(pageSize + 1)
 
-	// ID filter for pagination
-	if id > 0 {
-		db = db.Where("id < ?", id)
+	// Apply filters before executing the query
+	if lastID > 0 {
+		db = db.Where("savings_account.id < ?", lastID)
+	}
+	if searchTerm != "" {
+		db = db.Where("savings_account.savings_id LIKE ?", searchTerm+"%")
+	}
+	if status != "" {
+		if statusID, err := strconv.Atoi(status); err == nil {
+			db = db.Where("savings_account.status_id = ?", statusID)
+		}
 	}
 
+	// Count matching records only for the first page
 	var collectionCount int64
-
-	// Only count total collection on the first page
 	if pageToken == "" {
-		err := db.Count(&collectionCount).Error
-		if err != nil {
-			c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": "failed to count savings accounts"})
+		if err := db.Count(&collectionCount).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count loan accounts"})
 			return
 		}
 	}
 
 	// Fetch savings accounts with limit
-	accounts := make([]*SavingsAccount, 0, pageSize+1)
-	err := db.Find(&accounts).Error
-	if err != nil {
+	accounts := make([]*SavingsAccountRead, 0, pageSize+1)
+	if err := db.Find(&accounts).Error; err != nil {
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": "failed to retrieve savings accounts"})
 		return
 	}
@@ -189,20 +200,20 @@ func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
 	// Prepare the response data
 	resultAccounts := make([]*SavingsAccountResponse, 0, len(accounts))
 
-	for index, db := range accounts {
-		// Skip the extra record used for checking next page token
+	for index, account := range accounts {
+		// Skip the extra record used for checking the next page token
 		if index == pageSize {
 			break
 		}
 
-		resultAccounts = append(resultAccounts, ToSavingsAccountResponse(db))
+		resultAccounts = append(resultAccounts, ToSavingsAccountResponse(account))
 	}
 
 	// Generate the next page token if more records exist
 	var nextPageToken string
 	if len(accounts) > pageSize {
 		// Next page token is the ID of the last record
-		nextPageToken = base64.StdEncoding.EncodeToString([]byte(fmt.Sprint(accounts[pageSize-1].ID)))
+		nextPageToken = base64.StdEncoding.EncodeToString([]byte(fmt.Sprint(accounts[pageSize-1].SavingsAccount.ID)))
 	}
 
 	// Return paginated savings accounts
