@@ -12,7 +12,7 @@ func (api *APIServer) registerRoutes() {
 	api.GinEngine.POST("/api/reset-password", api.ResetPassword)
 	api.GinEngine.POST("/api/refresh", auth.TokenAuthMiddleware(api.TokenManager), api.RefreshSession)
 
-	// api.GinEngine.POST("/api/users", api.CreateUser)
+	api.GinEngine.POST("/api/users_", api.CreateUser)
 
 	userGroup := api.GinEngine.Group("/api/v1/users", auth.TokenAuthMiddleware(api.TokenManager))
 	{
