@@ -4,15 +4,15 @@ OPEN_API_V2_OUT_PATH := api/openapiv2
 
 setup_dev: ## Sets up a development environment for the okoa float bank apis project
 	@cd deployments/dev &&\
-	docker-compose up -d
+	docker compose up -d
 
 setup_redis:
 	@cd deployments/dev &&\
-	docker-compose up -d redis
+	docker compose up -d redis
 
 teardown_dev: ## Tear down development environment for the okoa float bank apis project
 	@cd deployments/dev &&\
-	docker-compose down
+	docker compose down
 
 local_image := pesapalm-api
 image := gidyon/pesapalm-api

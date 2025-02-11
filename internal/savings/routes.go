@@ -16,5 +16,6 @@ func RegisterRoutes(opt *Options) {
 		v1.PUT("/savings/:id", savingsController.UpdateSavingsAccount)
 		v1.PATCH("/savings/:id/status", savingsController.UpdateSavingsAccountStatus)
 		v1.DELETE("/savings/:id", savingsController.DeleteSavingsAccount)
+		v1.GET("/saving-stats", savingsController.GetStats)
 	}
 }

@@ -1,5 +1,5 @@
 local_image := pesapalm
-image := gidyon/pesapalm
+image := gidyon/pesapalm-api
 context := .
 
 ifdef IMAGE

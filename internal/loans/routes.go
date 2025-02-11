@@ -25,5 +25,6 @@ func RegisterRoutes(opt *Options) {
 		v1.GET("/loan-schedules/:loan_id", loanController.GetLoanSchedule)
 		v1.GET("/loan-eligibility/:customer_id", loanController.GetLoanEligibility)
 		v1.GET("/loan-accounts", loanController.ListLoanAccounts)
+		v1.GET("/loan-stats", loanController.GetStats)
 	}
 }

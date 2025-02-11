@@ -517,17 +517,17 @@ func (api *APIServer) ListUsers(c *gin.Context) {
 
 	var id int
 
-	// Get last id from page token
+	// Get last ID from page token
 	pageToken := queryParams.Get("pageToken")
 	if pageToken != "" {
 		bs, err := base64.StdEncoding.DecodeString(pageToken)
 		if err != nil {
-			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token in incorrect"})
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token is incorrect"})
 			return
 		}
 		id, err = strconv.Atoi(string(bs))
 		if err != nil {
-			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token in incorrect"})
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "page token is incorrect"})
 			return
 		}
 	}
@@ -537,6 +537,25 @@ func (api *APIServer) ListUsers(c *gin.Context) {
 	// ID filter
 	if id > 0 {
 		db = db.Where("id<?", id)
+	}
+
+	// Status filter
+	status := queryParams.Get("status")
+	if status != "" {
+		// Ensure the provided status is valid
+		validStatuses := map[string]bool{
+			"INVITED":  true,
+			"BLOCKED":  true,
+			"ACTIVE":   true,
+			"INACTIVE": true,
+			"CREATED":  true,
+			"DELETED":  true,
+		}
+		if !validStatuses[status] {
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "invalid status filter"})
+			return
+		}
+		db = db.Where("account_status = ?", status)
 	}
 
 	var collectionCount int64
@@ -607,7 +626,7 @@ func (api *APIServer) ListUsers(c *gin.Context) {
 	var token string
 	if len(dbs) > pageSize {
 		// Next page token
-		token = base64.StdEncoding.EncodeToString([]byte(fmt.Sprint(id)))
+		token = base64.StdEncoding.EncodeToString([]byte(fmt.Sprint(dbs[pageSize].ID)))
 	}
 
 	c.IndentedJSON(http.StatusOK, gin.H{

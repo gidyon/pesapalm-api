@@ -247,6 +247,8 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccountStatus(c *gin.Context)
 		return
 	}
 
+	var err error
+
 	// Perform action based on the value of "action"
 	switch dto.Action {
 	case "approve":
@@ -258,7 +260,7 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccountStatus(c *gin.Context)
 		now := time.Now()
 		account.DateApproved = sql.NullTime{Time: now, Valid: true}
 		account.StatusID = 2 // Approved status
-		ctrl.DB.Updates(&account)
+		err = ctrl.DB.Updates(&account).Error
 
 	case "activate":
 		// Activate the account by setting DateActivated and StatusID
@@ -269,7 +271,7 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccountStatus(c *gin.Context)
 		now := time.Now()
 		account.DateActivated = sql.NullTime{Time: now, Valid: true}
 		account.StatusID = 3 // Activated status
-		ctrl.DB.Updates(&account)
+		err = ctrl.DB.Updates(&account).Error
 
 	case "close":
 		// Close the account by setting DateClosed and StatusID
@@ -280,9 +282,14 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccountStatus(c *gin.Context)
 		now := time.Now()
 		account.DateClosed = sql.NullTime{Time: now, Valid: true}
 		account.StatusID = 4 // Closed status
-		ctrl.DB.Updates(&account)
+		err = ctrl.DB.Updates(&account).Error
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "allowed actions are approve, activate or close"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -290,4 +297,90 @@ func (ctrl *SavingsAccountController) UpdateSavingsAccountStatus(c *gin.Context)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Savings account updated successfully",
 	})
+}
+
+// Validate timeGroup
+var validTimeGroups = map[string]string{
+	"yearly":  "YEAR(created_at)",
+	"monthly": "DATE_FORMAT(created_at, '%Y-%m')",
+	"daily":   "DATE(created_at)",
+	"hourly":  "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')",
+}
+
+// GetStats retrieves aggregated savings statistics for graphing based on filters.
+func (ctrl *SavingsAccountController) GetStats(c *gin.Context) {
+	// Parse request parameters
+	queryParams := c.Request.URL.Query()
+
+	productID := queryParams.Get("product_id")
+	currencyID := queryParams.Get("currency_id")
+	financialPartner := queryParams.Get("financial_partner")
+	countryID := queryParams.Get("country_id")
+	timeFrom := queryParams.Get("from")
+	timeTo := queryParams.Get("to")
+	timeGroup := queryParams.Get("time_group") // e.g., "yearly", "monthly", "daily", "hourly"
+
+	groupByField, isValid := validTimeGroups[timeGroup]
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time group"})
+		return
+	}
+
+	// Base query
+	db := ctrl.DB.WithContext(c.Request.Context()).Table("savings_account").
+		Select(fmt.Sprintf(`
+			%s AS time_group,
+			COUNT(*) AS count,
+			SUM(balance) AS volume
+		`, groupByField)).
+		Group("time_group").
+		Order("time_group ASC")
+
+	// Apply filters
+	if productID != "" {
+		db = db.Where("product_id = ?", productID)
+	}
+	if currencyID != "" {
+		db = db.Where("currency_id = ?", currencyID)
+	}
+	if financialPartner != "" {
+		db = db.Where("financial_partner = ?", financialPartner)
+	}
+	if countryID != "" {
+		db = db.Where("country_id = ?", countryID)
+	}
+	if timeFrom != "" && timeTo != "" {
+		db = db.Where("created_at BETWEEN ? AND ?", timeFrom, timeTo)
+	} else if timeFrom != "" {
+		db = db.Where("created_at >= ?", timeFrom)
+	} else if timeTo != "" {
+		db = db.Where("created_at <= ?", timeTo)
+	}
+
+	// Execute the query and retrieve results
+	var stats []struct {
+		TimeGroup string  `json:"time_group"`
+		Count     int     `json:"count"`
+		Volume    float64 `json:"volume"`
+	}
+	if err := db.Find(&stats).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve statistics"})
+		return
+	}
+
+	// Prepare the response
+	response := map[string]interface{}{
+		"data":  stats,
+		"count": len(stats),
+		"volume": func() float64 {
+			total := 0.0
+			for _, stat := range stats {
+				total += stat.Volume
+			}
+			return total
+		}(),
+	}
+
+	// Send the response
+	c.JSON(http.StatusOK, response)
 }

@@ -205,3 +205,82 @@ func (ctrl *CustomerController) DeleteCustomer(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Customer deleted successfully"})
 }
+
+// Validate timeGroup
+var validTimeGroups = map[string]string{
+	"yearly":  "YEAR(created_at)",
+	"monthly": "DATE_FORMAT(created_at, '%Y-%m')",
+	"daily":   "DATE(created_at)",
+	"hourly":  "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')",
+}
+
+// GetStats retrieves aggregated customer statistics for graphing based on filters.
+func (ctrl *CustomerController) GetStats(c *gin.Context) {
+	// Parse request parameters
+	queryParams := c.Request.URL.Query()
+
+	statusID := queryParams.Get("status_id")
+	branchID := queryParams.Get("branch_id")
+	languageID := queryParams.Get("language_id")
+	timeFrom := queryParams.Get("from")
+	timeTo := queryParams.Get("to")
+	timeGroup := queryParams.Get("time_group") // e.g., "yearly", "monthly", "daily", "hourly"
+
+	groupByField, isValid := validTimeGroups[timeGroup]
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time group"})
+		return
+	}
+
+	// Base query
+	db := ctrl.DB.WithContext(c.Request.Context()).Table("customer").
+		Select(fmt.Sprintf(`
+			%s AS time_group,
+			COUNT(*) AS count
+		`, groupByField)).
+		Group("time_group").
+		Order("time_group ASC")
+
+	// Apply filters
+	if statusID != "" {
+		db = db.Where("status_id = ?", statusID)
+	}
+	if branchID != "" {
+		db = db.Where("branch_id = ?", branchID)
+	}
+	if languageID != "" {
+		db = db.Where("language_id = ?", languageID)
+	}
+	if timeFrom != "" && timeTo != "" {
+		db = db.Where("created_at BETWEEN ? AND ?", timeFrom, timeTo)
+	} else if timeFrom != "" {
+		db = db.Where("created_at >= ?", timeFrom)
+	} else if timeTo != "" {
+		db = db.Where("created_at <= ?", timeTo)
+	}
+
+	// Execute the query and retrieve results
+	var stats []struct {
+		TimeGroup string `json:"time_group"`
+		Count     int    `json:"count"`
+	}
+	if err := db.Find(&stats).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve statistics"})
+		return
+	}
+
+	// Prepare the response
+	response := map[string]interface{}{
+		"data": stats,
+		"count": func() int {
+			total := 0
+			for _, stat := range stats {
+				total += stat.Count
+			}
+			return total
+		}(),
+	}
+
+	// Send the response
+	c.JSON(http.StatusOK, response)
+}
