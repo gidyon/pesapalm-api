@@ -131,6 +131,8 @@ func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
 		queryParams = c.Request.URL.Query()
 		searchTerm  = queryParams.Get("search")
 		status      = queryParams.Get("status")
+		startDate   = queryParams.Get("startDate") // Start Date (timestamp)
+		endDate     = queryParams.Get("endDate")   // End Date (timestamp)
 	)
 
 	// Parse pageSize from query, default if invalid
@@ -181,11 +183,51 @@ func (ctrl *SavingsAccountController) ListSavingsAccounts(c *gin.Context) {
 		}
 	}
 
+	// Parse and validate startDate and endDate
+	if startDate != "" && endDate != "" {
+		startDateInt, errStart := strconv.ParseInt(startDate, 10, 64)
+		endDateInt, errEnd := strconv.ParseInt(endDate, 10, 64)
+
+		if errStart != nil || errEnd != nil {
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Invalid startDate or endDate"})
+			return
+		}
+
+		// Convert timestamps to time.Time
+		startTime := time.Unix(startDateInt, 0)
+		endTime := time.Unix(endDateInt, 0)
+
+		// Validate that startDate is earlier than endDate
+		if startTime.After(endTime) {
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "startDate must be earlier than endDate"})
+			return
+		}
+
+		// Apply the date filters
+		db = db.Where("savings_account.created_at BETWEEN ? AND ?", startTime, endTime)
+	} else if startDate != "" {
+		startDateInt, err := strconv.ParseInt(startDate, 10, 64)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Invalid startDate"})
+			return
+		}
+		startTime := time.Unix(startDateInt, 0)
+		db = db.Where("savings_account.created_at >= ?", startTime)
+	} else if endDate != "" {
+		endDateInt, err := strconv.ParseInt(endDate, 10, 64)
+		if err != nil {
+			c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Invalid endDate"})
+			return
+		}
+		endTime := time.Unix(endDateInt, 0)
+		db = db.Where("savings_account.created_at <= ?", endTime)
+	}
+
 	// Count matching records only for the first page
 	var collectionCount int64
 	if pageToken == "" {
 		if err := db.Count(&collectionCount).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count loan accounts"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count savings accounts"})
 			return
 		}
 	}
